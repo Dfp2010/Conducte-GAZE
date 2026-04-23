@@ -433,16 +433,17 @@ document.getElementById('btn-dxf').addEventListener('click', () => {
 
   lines.push('0', 'ENDSEC', '0', 'EOF');
 
-  const content = lines.join('\r\n');
-  const blob    = new Blob([content], { type: 'application/dxf' });
-  const url     = URL.createObjectURL(blob);
-  const a       = document.createElement('a');
-  a.href        = url;
-  a.download    = `conducte_${new Date().toISOString().slice(0,10)}.dxf`;
+  const content   = lines.join('\r\n');
+  const b64       = btoa(unescape(encodeURIComponent(content)));
+  const dataURI   = 'data:application/dxf;base64,' + b64;
+  const filename  = `conducte_${new Date().toISOString().slice(0,10)}.dxf`;
+  const a         = document.createElement('a');
+  a.href          = dataURI;
+  a.download      = filename;
+  a.style.display = 'none';
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  setTimeout(() => document.body.removeChild(a), 500);
 
   showToast(`✓ DXF generat (${selectedFeatures.length} obiect${selectedFeatures.length > 1 ? 'e' : ''})`);
 });
