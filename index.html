@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Hartă Conducte</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      background: #1a1a2e;
+    }
+
+    /* ── Header ── */
+    #header {
+      background: #1a1a2e;
+      color: #fff;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+      z-index: 999;
+    }
+
+    #header h1 {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+
+    #header h1 span {
+      color: #64b5f6;
+    }
+
+    /* ── Info bar ── */
+    #info-bar {
+      background: #f8f9fa;
+      border-bottom: 1px solid #e0e0e0;
+      padding: 7px 14px;
+      font-size: 13px;
+      color: #555;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      min-height: 36px;
+    }
+
+    #sel-info { flex: 1; }
+
+    .sel-count { font-weight: 600; color: #e53935; }
+
+    /* ── Map ── */
+    #map { flex: 1; }
+
+    /* ── Buttons ── */
+    .btn {
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      padding: 7px 13px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: opacity 0.15s;
+    }
+
+    .btn:active { opacity: 0.75; transform: scale(0.97); }
+
+    #btn-dxf {
+      background: #2196f3;
+      color: #fff;
+    }
+
+    #btn-dxf:disabled {
+      background: #bdbdbd;
+      cursor: not-allowed;
+    }
+
+    #btn-clear {
+      background: transparent;
+      color: #e53935;
+      border: 1px solid #e53935;
+      padding: 4px 9px;
+      font-size: 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      display: none;
+      margin-left: 8px;
+      white-space: nowrap;
+    }
+
+    /* ── Sync bar ── */
+    #sync-bar {
+      background: #1a1a2e;
+      color: #90caf9;
+      font-size: 11px;
+      padding: 4px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+
+    #sync-status { display: flex; align-items: center; gap: 5px; }
+
+    .sync-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #43a047;
+      flex-shrink: 0;
+    }
+
+    .sync-dot.loading {
+      background: #ffa726;
+      animation: pulse 0.8s infinite alternate;
+    }
+
+    @keyframes pulse { to { opacity: 0.3; } }
+
+    #btn-refresh-now {
+      background: transparent;
+      border: 1px solid rgba(144,202,249,0.35);
+      color: #90caf9;
+      border-radius: 4px;
+      font-size: 11px;
+      padding: 2px 8px;
+      cursor: pointer;
+    }
+
+    /* ── GPS dot icon ── */
+    .gps-dot {
+      width: 18px; height: 18px;
+      background: #43a047;
+      border: 3px solid #fff;
+      border-radius: 50%;
+      box-shadow: 0 0 0 2px rgba(67,160,71,0.4), 0 2px 6px rgba(0,0,0,0.35);
+    }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(60px);
+      background: #323232;
+      color: #fff;
+      padding: 9px 18px;
+      border-radius: 6px;
+      font-size: 13px;
+      z-index: 9999;
+      transition: transform 0.25s ease;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    #toast.show { transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+
+<div id="header">
+  <h1>Hartă <span>Conducte</span></h1>
+  <button class="btn" id="btn-dxf" disabled>⬇ DXF</button>
+</div>
+
+<div id="info-bar">
+  <span id="sel-info">Click pe o conductă pentru a o selecta</span>
+  <button id="btn-clear">✕ Golește</button>
+</div>
+
+<div id="map"></div>
+
+<div id="sync-bar">
+  <span id="sync-status">
+    <span class="sync-dot" id="sync-dot"></span>
+    <span id="sync-text">Se încarcă...</span>
+  </span>
+  <button id="btn-refresh-now">↺ Actualizează</button>
+</div>
+<div id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+<script>
+
+/* ──────────────────────────────────────────
+   Proiecție Stereo70 (EPSG:31700)
+   Coordonatele DXF vor fi în sistemul național
+────────────────────────────────────────── */
+proj4.defs(
+  'EPSG:31700',
+  '+proj=sterea +lat_0=46 +lon_0=25 +k=0.99975 ' +
+  '+x_0=500000 +y_0=500000 +ellps=krass ' +
+  '+towgs84=28,-121,-77,0,0,0,0 +units=m +no_defs'
+);
+
+/* ──────────────────────────────────────────
+   Hartă
+────────────────────────────────────────── */
+const map = L.map('map', { zoomControl: true }).setView([44.85, 24.87], 14);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
+  maxZoom: 22
+}).addTo(map);
+
+// Layer suplimentar cu ortofoto ESRI (opțional, comentează dacă vrei doar OSM)
+const esriOrtho = L.tileLayer(
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  { attribution: 'Tiles © Esri', maxZoom: 22 }
+);
+
+// Control straturi
+L.control.layers(
+  { 'OpenStreetMap': map._layers[Object.keys(map._layers)[0]], 'Satelit (ESRI)': esriOrtho },
+  {},
+  { position: 'topright' }
+).addTo(map);
+
+/* ──────────────────────────────────────────
+   Stiluri conducte
+────────────────────────────────────────── */
+const STYLE_NORMAL   = { color: '#2196f3', weight: 3.5, opacity: 0.85 };
+const STYLE_SELECTED = { color: '#e53935', weight: 6,   opacity: 1 };
+
+/* ──────────────────────────────────────────
+   Stare selecție
+────────────────────────────────────────── */
+let selectedFeatures = []; // [{ feature, layer }]
+
+/* ──────────────────────────────────────────
+   Încarcă și auto-refresh GeoJSON
+────────────────────────────────────────── */
+const REFRESH_INTERVAL = 90; // secunde
+
+let gjLayer        = null;
+let firstLoad      = true;
+let countdownValue = REFRESH_INTERVAL;
+let countdownTimer = null;
+
+function setSyncState(state, text) {
+  const dot  = document.getElementById('sync-dot');
+  const span = document.getElementById('sync-text');
+  dot.className  = 'sync-dot' + (state === 'loading' ? ' loading' : '');
+  dot.style.background = state === 'error' ? '#e53935' : state === 'loading' ? '#ffa726' : '#43a047';
+  span.textContent = text;
+}
+
+function loadGeoJSON() {
+  setSyncState('loading', 'Se actualizează...');
+  clearInterval(countdownTimer);
+
+  fetch('conducte.geojson?t=' + Date.now())
+    .then(r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(data => {
+      // Reține selecția după proprietăți
+      const selIds = new Set(
+        selectedFeatures.map(sf =>
+          JSON.stringify(sf.feature.properties)
+        )
+      );
+      selectedFeatures = [];
+
+      if (gjLayer) { map.removeLayer(gjLayer); }
+
+      gjLayer = L.geoJSON(data, {
+        style: () => ({ ...STYLE_NORMAL }),
+        onEachFeature: (feature, layer) => {
+          if (feature.properties) {
+            const rows = Object.entries(feature.properties)
+              .map(([k, v]) => `<tr><td style="color:#888;padding-right:8px">${k}</td><td><b>${v ?? '–'}</b></td></tr>`)
+              .join('');
+            layer.bindPopup(`<table style="font-size:13px;line-height:1.6">${rows}</table>`);
+          }
+          // Restaurează selecția
+          const key = JSON.stringify(feature.properties);
+          if (selIds.has(key)) {
+            layer.setStyle(STYLE_SELECTED);
+            selectedFeatures.push({ feature, layer });
+          }
+          layer.on('click', e => {
+            L.DomEvent.stopPropagation(e);
+            toggleFeature(feature, layer);
+          });
+        }
+      }).addTo(map);
+
+      if (firstLoad && gjLayer.getBounds().isValid()) {
+        map.fitBounds(gjLayer.getBounds(), { padding: [30, 30] });
+        firstLoad = false;
+      }
+
+      updateUI();
+      const now = new Date().toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setSyncState('ok', `Actualizat la ${now} · următor în ${REFRESH_INTERVAL}s`);
+      startCountdown();
+    })
+    .catch(err => {
+      setSyncState('error', '⚠ Eroare la încărcare');
+      console.error(err);
+      startCountdown();
+    });
+}
+
+function startCountdown() {
+  countdownValue = REFRESH_INTERVAL;
+  clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    countdownValue--;
+    const span = document.getElementById('sync-text');
+    if (countdownValue <= 0) {
+      clearInterval(countdownTimer);
+      loadGeoJSON();
+    } else {
+      if (span.textContent.includes('următor')) {
+        span.textContent = span.textContent.replace(/următor în \d+s/, `următor în ${countdownValue}s`);
+      }
+    }
+  }, 1000);
+}
+
+document.getElementById('btn-refresh-now').addEventListener('click', loadGeoJSON);
+
+loadGeoJSON();
+
+/* ──────────────────────────────────────────
+   Selecție
+────────────────────────────────────────── */
+function toggleFeature(feature, layer) {
+  const idx = selectedFeatures.findIndex(f => f.layer === layer);
+  if (idx >= 0) {
+    layer.setStyle(STYLE_NORMAL);
+    selectedFeatures.splice(idx, 1);
+  } else {
+    layer.setStyle(STYLE_SELECTED);
+    layer.bringToFront();
+    selectedFeatures.push({ feature, layer });
+  }
+  updateUI();
+}
+
+function updateUI() {
+  const n = selectedFeatures.length;
+  const info  = document.getElementById('sel-info');
+  const btnD  = document.getElementById('btn-dxf');
+  const btnC  = document.getElementById('btn-clear');
+
+  if (n === 0) {
+    info.innerHTML = 'Click pe o conductă pentru a o selecta';
+    btnD.disabled  = true;
+    btnC.style.display = 'none';
+  } else {
+    info.innerHTML = `<span class="sel-count">${n} conductă${n > 1 ? 'e' : ''} selectată${n > 1 ? 'e' : ''}</span>`;
+    btnD.disabled  = false;
+    btnC.style.display = 'inline-block';
+  }
+}
+
+document.getElementById('btn-clear').addEventListener('click', () => {
+  selectedFeatures.forEach(({ layer }) => layer.setStyle(STYLE_NORMAL));
+  selectedFeatures = [];
+  updateUI();
+});
+
+/* ──────────────────────────────────────────
+   Export DXF ASCII
+   Coordonate: WGS84 → Stereo70
+────────────────────────────────────────── */
+document.getElementById('btn-dxf').addEventListener('click', () => {
+  if (!selectedFeatures.length) return;
+
+  const lines = [];
+
+  // Header DXF minim (compatibil AutoCAD R12+)
+  lines.push(
+    '0', 'SECTION',
+    '2', 'HEADER',
+    '9', '$ACADVER',
+    '1', 'AC1009',
+    '9', '$INSUNITS',
+    '70', '6',       // 6 = metri
+    '0', 'ENDSEC',
+    '0', 'SECTION',
+    '2', 'ENTITIES'
+  );
+
+  selectedFeatures.forEach(({ feature }) => {
+    const geom      = feature.geometry;
+    const layerName = (feature.properties?.layer || feature.properties?.Layer || 'CONDUCTE')
+                        .toString().replace(/\s+/g, '_').toUpperCase();
+
+    const writeLine = (lon1, lat1, lon2, lat2) => {
+      const [x1, y1] = proj4('EPSG:4326', 'EPSG:31700', [lon1, lat1]);
+      const [x2, y2] = proj4('EPSG:4326', 'EPSG:31700', [lon2, lat2]);
+      lines.push(
+        '0',  'LINE',
+        '8',  layerName,
+        '10', x1.toFixed(3),
+        '20', y1.toFixed(3),
+        '30', '0.000',
+        '11', x2.toFixed(3),
+        '21', y2.toFixed(3),
+        '31', '0.000'
+      );
+    };
+
+    const processCoords = coords => {
+      for (let i = 0; i < coords.length - 1; i++) {
+        writeLine(coords[i][0], coords[i][1], coords[i+1][0], coords[i+1][1]);
+      }
+    };
+
+    if (geom.type === 'LineString') {
+      processCoords(geom.coordinates);
+    } else if (geom.type === 'MultiLineString') {
+      geom.coordinates.forEach(processCoords);
+    }
+  });
+
+  lines.push('0', 'ENDSEC', '0', 'EOF');
+
+  const content = lines.join('\r\n');
+  const blob    = new Blob([content], { type: 'application/dxf' });
+  const url     = URL.createObjectURL(blob);
+  const a       = document.createElement('a');
+  a.href        = url;
+  a.download    = `conducte_${new Date().toISOString().slice(0,10)}.dxf`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  showToast(`✓ DXF generat (${selectedFeatures.length} obiect${selectedFeatures.length > 1 ? 'e' : ''})`);
+});
+
+/* ──────────────────────────────────────────
+   GPS – locație curentă
+────────────────────────────────────────── */
+let gpsMarker    = null;
+let gpsAccCircle = null;
+
+if ('geolocation' in navigator) {
+  const gpsIcon = L.divIcon({
+    className: '',
+    html: '<div class="gps-dot"></div>',
+    iconSize:   [18, 18],
+    iconAnchor: [9, 9]
+  });
+
+  navigator.geolocation.watchPosition(
+    pos => {
+      const { latitude: lat, longitude: lng, accuracy: acc } = pos.coords;
+
+      if (!gpsMarker) {
+        gpsMarker    = L.marker([lat, lng], { icon: gpsIcon, zIndexOffset: 1000 })
+                         .bindTooltip('Locația mea', { permanent: false })
+                         .addTo(map);
+        gpsAccCircle = L.circle([lat, lng], { radius: acc, color: '#43a047', fillOpacity: 0.08, weight: 1 })
+                         .addTo(map);
+      } else {
+        gpsMarker.setLatLng([lat, lng]);
+        gpsAccCircle.setLatLng([lat, lng]).setRadius(acc);
+      }
+    },
+    err => showToast('GPS indisponibil: ' + err.message),
+    { enableHighAccuracy: true, maximumAge: 4000, timeout: 10000 }
+  );
+} else {
+  showToast('GPS nu este suportat de browser');
+}
+
+/* ──────────────────────────────────────────
+   Utilitar toast
+────────────────────────────────────────── */
+let toastTimer = null;
+function showToast(msg, duration = 3000) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), duration);
+}
+
+</script>
+</body>
+</html>
