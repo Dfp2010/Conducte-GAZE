@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-  <title>Hartă Conducte</title>
+  <title>Hartă Rețea Gaze</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -170,7 +170,7 @@
 <body>
 
 <div id="header">
-  <h1>Hartă <span>Conducte</span></h1>
+  <h1>Rețea <span>Gaze</span></h1>
   <button class="btn" id="btn-dxf" disabled>⬇ DXF</button>
 </div>
 
@@ -261,7 +261,7 @@ function loadGeoJSON() {
   setSyncState('loading', 'Se actualizează...');
   clearInterval(countdownTimer);
 
-  fetch('conducte.geojson?t=' + Date.now())
+  fetch('Conducte-GAZE.geojson?t=' + Date.now())
     .then(r => {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
@@ -310,7 +310,7 @@ function loadGeoJSON() {
       startCountdown();
     })
     .catch(err => {
-      setSyncState('error', '⚠ Eroare la încărcare');
+      setSyncState('error', '⚠ Nu s-a găsit Conducte-GAZE.geojson');
       console.error(err);
       startCountdown();
     });
