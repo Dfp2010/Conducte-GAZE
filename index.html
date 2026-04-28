@@ -277,6 +277,7 @@ function loadGeoJSON() {
 
       if (gjLayer) { map.removeLayer(gjLayer); }
 
+      // Layer vizibil
       gjLayer = L.geoJSON(data, {
         style: () => ({ ...STYLE_NORMAL }),
         onEachFeature: (feature, layer) => {
@@ -286,15 +287,26 @@ function loadGeoJSON() {
               .join('');
             layer.bindPopup(`<table style="font-size:13px;line-height:1.6">${rows}</table>`);
           }
-          // Restaurează selecția
           const key = JSON.stringify(feature.properties);
           if (selIds.has(key)) {
             layer.setStyle(STYLE_SELECTED);
             selectedFeatures.push({ feature, layer });
           }
+        }
+      }).addTo(map);
+
+      // Layer invizibil cu zonă de touch largă (30px)
+      L.geoJSON(data, {
+        style: () => ({ weight: 30, opacity: 0, fill: false }),
+        onEachFeature: (feature, layer) => {
           layer.on('click', e => {
             L.DomEvent.stopPropagation(e);
-            toggleFeature(feature, layer);
+            const key = JSON.stringify(feature.properties);
+            gjLayer.eachLayer(visLayer => {
+              if (JSON.stringify(visLayer.feature.properties) === key) {
+                toggleFeature(feature, visLayer);
+              }
+            });
           });
         }
       }).addTo(map);
