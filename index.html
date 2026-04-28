@@ -277,9 +277,9 @@ function loadGeoJSON() {
 
       if (gjLayer) { map.removeLayer(gjLayer); }
 
-      // Layer vizibil
+      // Layer 1 (jos): gros, captează touch-ul
       gjLayer = L.geoJSON(data, {
-        style: () => ({ ...STYLE_NORMAL }),
+        style: () => ({ color: '#2196f3', weight: 25, opacity: 0.15, fill: false }),
         onEachFeature: (feature, layer) => {
           if (feature.properties) {
             const rows = Object.entries(feature.properties)
@@ -289,26 +289,20 @@ function loadGeoJSON() {
           }
           const key = JSON.stringify(feature.properties);
           if (selIds.has(key)) {
-            layer.setStyle(STYLE_SELECTED);
+            layer.setStyle({ color: '#e53935', weight: 25, opacity: 0.25, fill: false });
             selectedFeatures.push({ feature, layer });
           }
+          layer.on('click', e => {
+            L.DomEvent.stopPropagation(e);
+            toggleFeature(feature, layer);
+          });
         }
       }).addTo(map);
 
-      // Layer invizibil cu zonă de touch largă (30px)
+      // Layer 2 (sus): subțire, doar vizual, fără interacțiune
       L.geoJSON(data, {
-        style: () => ({ weight: 30, opacity: 0.001, fill: false }),
-        onEachFeature: (feature, layer) => {
-          layer.on('click', e => {
-            L.DomEvent.stopPropagation(e);
-            const key = JSON.stringify(feature.properties);
-            gjLayer.eachLayer(visLayer => {
-              if (JSON.stringify(visLayer.feature.properties) === key) {
-                toggleFeature(feature, visLayer);
-              }
-            });
-          });
-        }
+        style: () => ({ ...STYLE_NORMAL }),
+        interactive: false
       }).addTo(map);
 
       if (firstLoad && gjLayer.getBounds().isValid()) {
@@ -355,11 +349,10 @@ loadGeoJSON();
 function toggleFeature(feature, layer) {
   const idx = selectedFeatures.findIndex(f => f.layer === layer);
   if (idx >= 0) {
-    layer.setStyle(STYLE_NORMAL);
+    layer.setStyle({ color: '#2196f3', weight: 25, opacity: 0.15, fill: false });
     selectedFeatures.splice(idx, 1);
   } else {
-    layer.setStyle(STYLE_SELECTED);
-    layer.bringToFront();
+    layer.setStyle({ color: '#e53935', weight: 25, opacity: 0.25, fill: false });
     selectedFeatures.push({ feature, layer });
   }
   updateUI();
