@@ -297,7 +297,7 @@ function loadGeoJSON() {
 
       // Layer invizibil cu zonă de touch largă (30px)
       L.geoJSON(data, {
-        style: () => ({ weight: 30, opacity: 0, fill: false }),
+        style: () => ({ weight: 30, opacity: 0.001, fill: false }),
         onEachFeature: (feature, layer) => {
           layer.on('click', e => {
             L.DomEvent.stopPropagation(e);
