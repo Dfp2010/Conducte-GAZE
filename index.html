@@ -385,10 +385,12 @@ function toggleFeature(feature, layer) {
   const idx = selectedFeatures.findIndex(f => f.layer === layer);
   if (idx >= 0) {
     layer.setStyle(STYLE_NORMAL);
+    layer.closePopup();
     selectedFeatures.splice(idx, 1);
   } else {
     layer.setStyle(STYLE_SELECTED);
     selectedFeatures.push({ feature, layer });
+    layer.openPopup();
   }
   updateUI();
 }
