@@ -279,6 +279,7 @@ function loadGeoJSON() {
 
       gjLayer = L.geoJSON(data, {
         style: () => ({ ...STYLE_NORMAL }),
+        interactive: false,
         onEachFeature: (feature, layer) => {
           if (feature.properties) {
             const rows = Object.entries(feature.properties)
@@ -286,16 +287,11 @@ function loadGeoJSON() {
               .join('');
             layer.bindPopup(`<table style="font-size:13px;line-height:1.6">${rows}</table>`);
           }
-          // Restaurează selecția
           const key = JSON.stringify(feature.properties);
           if (selIds.has(key)) {
             layer.setStyle(STYLE_SELECTED);
             selectedFeatures.push({ feature, layer });
           }
-          layer.on('click', e => {
-            L.DomEvent.stopPropagation(e);
-            toggleFeature(feature, layer);
-          });
         }
       }).addTo(map);
 
@@ -340,15 +336,61 @@ loadGeoJSON();
 /* ──────────────────────────────────────────
    Selecție
 ────────────────────────────────────────── */
+// ── Distanță punct-segment în pixeli ──────────────────
+function ptSegDistPx(p, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  if (dx === 0 && dy === 0) {
+    return Math.hypot(p.x - a.x, p.y - a.y);
+  }
+  const t = Math.max(0, Math.min(1, ((p.x-a.x)*dx + (p.y-a.y)*dy) / (dx*dx+dy*dy)));
+  return Math.hypot(p.x - (a.x+t*dx), p.y - (a.y+t*dy));
+}
+
+// ── Găsește cel mai apropiat layer la un punct px ──────
+function findNearest(pxPoint, thresholdPx) {
+  let best = null, bestDist = thresholdPx;
+  gjLayer.eachLayer(layer => {
+    const coords = layer.feature.geometry.type === 'LineString'
+      ? [layer.feature.geometry.coordinates]
+      : layer.feature.geometry.coordinates;
+    coords.forEach(ring => {
+      for (let i = 0; i < ring.length - 1; i++) {
+        const a = map.latLngToContainerPoint([ring[i][1],   ring[i][0]]);
+        const b = map.latLngToContainerPoint([ring[i+1][1], ring[i+1][0]]);
+        const d = ptSegDistPx(pxPoint, a, b);
+        if (d < bestDist) { bestDist = d; best = layer; }
+      }
+    });
+  });
+  return best;
+}
+
+// ── Handler tap/click pe hartă ────────────────────────
+function onMapTap(e) {
+  const px = e.containerPoint || map.latLngToContainerPoint(e.latlng);
+  const layer = findNearest(px, 30);
+  if (layer) toggleFeature(layer.feature, layer);
+}
+map.on('click', onMapTap);
+map.on('touchend', function(e) {
+  if (e.originalEvent.changedTouches.length !== 1) return;
+  const t   = e.originalEvent.changedTouches[0];
+  const rect = map.getContainer().getBoundingClientRect();
+  const px  = L.point(t.clientX - rect.left, t.clientY - rect.top);
+  const layer = findNearest(px, 30);
+  if (layer) toggleFeature(layer.feature, layer);
+});
+
 function toggleFeature(feature, layer) {
   const idx = selectedFeatures.findIndex(f => f.layer === layer);
   if (idx >= 0) {
     layer.setStyle(STYLE_NORMAL);
+    layer.closePopup();
     selectedFeatures.splice(idx, 1);
   } else {
     layer.setStyle(STYLE_SELECTED);
-    layer.bringToFront();
     selectedFeatures.push({ feature, layer });
+    layer.openPopup();
   }
   updateUI();
 }
