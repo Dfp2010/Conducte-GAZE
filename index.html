@@ -426,70 +426,76 @@ document.getElementById('btn-clear').addEventListener('click', () => {
 document.getElementById('btn-dxf').addEventListener('click', () => {
   if (!selectedFeatures.length) return;
 
-  const lines = [];
-  let handle  = 0x100;                       // handle-uri incrementale
-  const nextHandle = () => (handle++).toString(16).toUpperCase();
+  const L = [];
+  const push = (...a) => L.push(...a);
 
-  // ── Header (AutoCAD 2000 / AC1015) ──
-  lines.push(
-    '0', 'SECTION',
-    '2', 'HEADER',
-    '9', '$ACADVER',  '1', 'AC1015',
-    '9', '$INSUNITS', '70', '6',             // 6 = metri
-    '9', '$HANDSEED', '5', 'FFFF',
-    '0', 'ENDSEC',
-    '0', 'SECTION',
-    '2', 'ENTITIES'
-  );
-
-  let nPoly = 0, usedFallback = false;
-
-  // ── Scrie o LWPOLYLINE dintr-un sir de puncte [[x,y],...] ──
-  const writePolyline = (pts, layerName) => {
-    if (!pts || pts.length < 2) return;
-    lines.push(
-      '0',   'LWPOLYLINE',
-      '5',   nextHandle(),
-      '100', 'AcDbEntity',
-      '8',   layerName,
-      '100', 'AcDbPolyline',
-      '90',  String(pts.length),
-      '70',  '0',                            // 0 = polilinie deschisa
-      '43',  '0.0'                           // latime constanta
-    );
-    pts.forEach(([x, y]) => {
-      lines.push('10', x.toFixed(3), '20', y.toFixed(3));
-    });
-    nPoly++;
-  };
+  // ── Colectez poliliniile si layerele ──
+  const layerSet = new Set();
+  const items    = [];
+  let usedFallback = false;
 
   selectedFeatures.forEach(({ feature }) => {
-    const props     = feature.properties || {};
-    const layerName = (props.layer || props.Layer || 'CONDUCTE')
-                        .toString().replace(/\s+/g, '_').toUpperCase();
+    const p  = feature.properties || {};
+    const ln = (p.layer || p.Layer || 'CONDUCTE').toString()
+                 .replace(/[^0-9A-Za-z_\-]+/g, '_')
+                 .toUpperCase().slice(0, 31) || 'CONDUCTE';
+    layerSet.add(ln);
 
-    // ── VARIANTA A: coordonate Stereo70 exacte, direct din QGIS ──
-    if (Array.isArray(props._st70) && props._st70.length) {
-      props._st70.forEach(part => writePolyline(part, layerName));
+    // Coordonate Stereo70 exacte, direct din QGIS
+    if (Array.isArray(p._st70) && p._st70.length) {
+      p._st70.forEach(part => { if (part.length >= 2) items.push({ ln, pts: part }); });
       return;
     }
 
-    // ── VARIANTA B (rezerva): reproiectie in browser ──
+    // Rezerva: reproiectie in browser (mai putin precisa)
     usedFallback = true;
-    const geom  = feature.geometry;
-    const parts = geom.type === 'LineString'
-                    ? [geom.coordinates]
-                    : geom.type === 'MultiLineString' ? geom.coordinates : [];
-
+    const g     = feature.geometry;
+    const parts = g.type === 'LineString'      ? [g.coordinates]
+                : g.type === 'MultiLineString' ?  g.coordinates : [];
     parts.forEach(ring => {
       const pts = ring.map(([lon, lat]) => proj4('EPSG:4326', 'EPSG:31700', [lon, lat]));
-      writePolyline(pts, layerName);
+      if (pts.length >= 2) items.push({ ln, pts });
     });
   });
 
-  lines.push('0', 'ENDSEC', '0', 'EOF');
+  if (!items.length) { showToast('⚠ Nimic de exportat'); return; }
+  const layers = [...layerSet];
 
-  const content   = lines.join('\r\n');
+  // ── HEADER (R12 / AC1009) ──
+  push('0', 'SECTION', '2', 'HEADER',
+       '9', '$ACADVER',  '1',  'AC1009',
+       '9', '$INSUNITS', '70', '6',              // 6 = metri
+       '0', 'ENDSEC');
+
+  // ── TABLES: tipuri de linie + layere ──
+  push('0', 'SECTION', '2', 'TABLES');
+  push('0', 'TABLE', '2', 'LTYPE', '70', '1',
+       '0', 'LTYPE', '2', 'CONTINUOUS', '70', '0',
+       '3', 'Solid line', '72', '65', '73', '0', '40', '0.0',
+       '0', 'ENDTAB');
+  push('0', 'TABLE', '2', 'LAYER', '70', String(layers.length));
+  layers.forEach(ln => push('0', 'LAYER', '2', ln, '70', '0', '62', '7', '6', 'CONTINUOUS'));
+  push('0', 'ENDTAB');
+  push('0', 'ENDSEC');
+
+  // ── BLOCKS (goala, dar obligatoriu prezenta) ──
+  push('0', 'SECTION', '2', 'BLOCKS', '0', 'ENDSEC');
+
+  // ── ENTITIES: cate o POLYLINE per conducta ──
+  push('0', 'SECTION', '2', 'ENTITIES');
+  items.forEach(({ ln, pts }) => {
+    push('0', 'POLYLINE', '8', ln, '66', '1', '70', '0',
+         '10', '0.0', '20', '0.0', '30', '0.0');
+    pts.forEach(([x, y]) => {
+      push('0', 'VERTEX', '8', ln,
+           '10', (+x).toFixed(3), '20', (+y).toFixed(3), '30', '0.0');
+    });
+    push('0', 'SEQEND', '8', ln);
+  });
+  push('0', 'ENDSEC', '0', 'EOF');
+
+  // ── Descarcare ──
+  const content   = L.join('\r\n') + '\r\n';
   const b64       = btoa(unescape(encodeURIComponent(content)));
   const dataURI   = 'data:application/dxf;base64,' + b64;
   const filename  = `conducte_${new Date().toISOString().slice(0,10)}.dxf`;
@@ -501,7 +507,8 @@ document.getElementById('btn-dxf').addEventListener('click', () => {
   a.click();
   setTimeout(() => document.body.removeChild(a), 500);
 
-  showToast(`✓ ${nPoly} polilinie/polilinii exportate` + (usedFallback ? ' (coord. aproximative)' : ''));
+  showToast(`✓ ${items.length} polilinie/polilinii exportate`
+            + (usedFallback ? ' (coord. aproximative)' : ''));
 });
 
 /* ──────────────────────────────────────────
